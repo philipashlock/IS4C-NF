@@ -95,19 +95,27 @@ if (isset($_REQUEST['confirm'])){
 	while(!feof($fp)){
 		$line = fgets($fp);
 		$data = csv_parser($line);
-
+		
+		if (isset($_REQUEST['skipheader']) && $count == 0) {
+			$count++;
+			continue;
+		}
+		
 		$upc = "";
 		for($i=0;$i<strlen($data[$cols['upc']]);$i++){
 			if (is_numeric($data[$cols['upc']][$i]))
 				$upc .= $data[$cols['upc']][$i];	
 		}
-		if (strlen($upc) < 7) continue; 
-
+		
+		// if we're ignoring anything shorter than a UPC, we'll skip it
+		if (isset($_REQUEST['ignoreplu']) && strlen($upc) < 7) continue; 		
+		
 		$upc = str_pad($upc,13,'0',STR_PAD_LEFT);
 		if (strlen($upc) > 13) $upc = substr($upc,-13);
 		if (isset($_REQUEST['checkdigits']))	
 			$upc = '0'.substr($upc,0,12);
 
+		
 		$sku = $dbc->escape(trim($data[$cols['sku']]));
 		$brand = $dbc->escape(trim($data[$cols['brand']]));
 		$desc = $dbc->escape(trim($data[$cols['desc']]));
@@ -132,6 +140,8 @@ if (isset($_REQUEST['confirm'])){
 	}
 	fclose($fp);
 	unlink($fn);
+
+	$count = (isset($_REQUEST['skipheader'])) ? $count - 1 : $count;
 
 	echo "Imported $count products into the vendor catalog";
 	echo "<p />";
@@ -186,7 +196,9 @@ elseif (isset($_REQUEST['preview'])){
 	echo "</table>";
 	echo "<br />";
 	echo "<input type=submit name=confirm value=\"Update Catalog\">";
+	echo " <input type=checkbox name=skipheader checked /> Skip first row (column headings)";	
 	echo " <input type=checkbox name=checkdigits checked /> UPCs include check digits";
+	echo " <input type=checkbox name=ignoreplu checked /> Ignore PLU numbers";	
 	echo "</form>";
 }
 else {

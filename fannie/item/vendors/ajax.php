@@ -59,8 +59,11 @@ if (isset($_REQUEST['action'])){
 		getCategoryBrands($_REQUEST['vid'],$_REQUEST['deptID']);
 		break;
 	case 'addPosItem':
-		addPosItem($_REQUEST['upc'],$_REQUEST['vid'],$_REQUEST['price'],$_REQUEST['dept']);
+		addPosItem($_REQUEST['upc'],$_REQUEST['vid'],$_REQUEST['price'],$_REQUEST['dept'], true);
 		break;
+	case 'addAllItems':
+		addAllItems($_REQUEST['vid']);
+		break;		
 	case 'saveScript':
 		$q1 = sprintf("DELETE FROM vendorLoadScripts WHERE vendorID=%d",$_REQUEST['vid']);
 		$dbc->query($q1);
@@ -71,7 +74,7 @@ if (isset($_REQUEST['action'])){
 	}
 }
 
-function addPosItem($upc,$vid,$price,$dept){
+function addPosItem($upc,$vid,$price,$dept,$single){
 	global $dbc;
 
 	$vinfo = $dbc->query("SELECT i.*,v.vendorName FROM vendorItems AS i
@@ -81,15 +84,79 @@ function addPosItem($upc,$vid,$price,$dept){
 	$dinfo = $dbc->query("SELECT * FROM departments WHERE dept_no=$dept");
 	$dinfo = $dbc->fetch_row($dinfo);
 
-	$query99 = sprintf("INSERT INTO products (upc,description,normal_price,pricemethod,groupprice,quantity,
-	special_price,specialpricemethod,specialgroupprice,specialquantity,
-	department,size,tax,foodstamp,scale,scaleprice,mixmatchcode,modified,advertised,tareweight,discount,
-	discounttype,unitofmeasure,wicable,qttyEnforced,idEnforced,cost,inUse,subdept,deposit,local,
-	start_date,end_date,numflag) VALUES
-	('%s',%s,%.2f,0,0.00,0,0.00,0,0.00,0,%d,'',%d,%d,0,0,0,{$dbc->now()},
-	1,0,1,0,'',0,0,0,%.2f,1,0,0.00,0,'1900-01-01','1900-01-01',0)",$upc,$dbc->escape($vinfo['description']),
-	$price,$dept,$dinfo['dept_tax'],$dinfo['dept_fs'],($vinfo['cost']/$vinfo['units']));
+	$normal_price = number_format($price, 2);
+	$cost 		  = number_format($vinfo['cost']/$vinfo['units'], 2);
 
+	$query99 = "INSERT INTO 
+		products (	upc,
+					description,
+					normal_price,
+					pricemethod,
+					groupprice,
+					quantity,
+					special_price,
+					specialpricemethod,
+					specialgroupprice,
+					specialquantity,
+					department,
+					size,
+					tax,
+					foodstamp,
+					scale,
+					scaleprice,
+					mixmatchcode,
+					modified,
+					advertised,
+					tareweight,
+					discount,
+					discounttype,
+					unitofmeasure,
+					wicable,
+					qttyEnforced,
+					idEnforced,
+					cost,
+					inUse,
+					subdept,
+					deposit,
+					local,
+					start_date,
+					end_date,
+					numflag) 
+		VALUES ('{$upc}',                               /* upc,                */
+				{$dbc->escape($vinfo['description'])},  /* description,        */
+				$normal_price,                          /* normal_price,       */
+				0,                                      /* pricemethod,        */
+				0.00,                                   /* groupprice,         */
+				0,                                      /* quantity,           */
+				0.00,                                   /* special_price,      */
+				0,                                      /* specialpricemethod, */
+				0.00,                                   /* specialgroupprice,  */
+				0,                                      /* specialquantity,    */
+				$dept,                                  /* department,         */
+				'',                                     /* size,               */
+				{$dinfo['dept_tax']},                   /* tax,                */
+				{$dinfo['dept_fs']},                    /* foodstamp,          */
+				0,                                      /* scale,              */
+				0,                                      /* scaleprice,         */
+				0,                                      /* mixmatchcode,       */
+				{$dbc->now()},                          /* modified,           */
+				1,                                      /* advertised,         */
+				0,                                      /* tareweight,         */
+				1,                                      /* discount,           */
+				0,                                      /* discounttype,       */
+				'',                                     /* unitofmeasure,      */
+				0,                                      /* wicable,            */
+				0,                                      /* qttyEnforced,       */
+				0,                                      /* idEnforced,         */
+				$cost,                                  /* cost,               */
+				1,                                      /* inUse,              */
+				0,                                      /* subdept,            */
+				0.00,                                   /* deposit,            */
+				0,                                      /* local,              */
+				'1900-01-01',                           /* start_date,         */
+				'1900-01-01',                           /* end_date,           */
+				0)";                                    /* numflag             */
+	
 	$xInsQ = sprintf("INSERT INTO prodExtra (upc,distributor,manufacturer,cost,margin,variable_pricing,location,
 			case_quantity,case_cost,case_info) VALUES
 			('%s',%s,%s,%.2f,0.00,0,'','',0.00,'')",$upc,$dbc->escape($vinfo['brand']),
@@ -98,8 +165,46 @@ function addPosItem($upc,$vid,$price,$dept){
 	$dbc->query($query99);
 	$dbc->query($xInsQ);
 
-	echo "Item added";
+	if ($single) echo "Item added";
 }
+
+
+function addAllItems($vid){
+	
+	global $dbc;
+	
+	$query = "SELECT v.upc,
+					 v.brand,
+					 v.description,
+					 v.size,
+					 v.cost/v.units as cost,
+					 v.vendorDept as dept_id,
+					CASE WHEN d.margin IS NULL THEN 0 ELSE d.margin END as margin,
+					CASE WHEN p.upc IS NULL THEN 0 ELSE 1 END as inPOS
+					FROM vendorItems AS v 
+					LEFT JOIN products AS p
+					ON v.upc = p.upc 
+					LEFT JOIN vendorDepartments AS d
+					ON d.deptID = v.vendorDept
+					WHERE 
+						v.vendorID = $vid 
+					GROUP BY v.upc 	
+					ORDER BY v.upc";
+
+
+	$result = $dbc->query($query);	
+
+	while($row = $dbc->fetch_row($result)){
+		if ($row['inPOS'] == 0){			
+			$srp = number_format(getSRP($row['cost'],$row['margin']), 2);
+			addPosItem($row['upc'],$vid,$srp,$row['dept_id'], false);
+		}
+	}
+
+	echo "All items added";
+	
+}
+
 
 function getCategoryBrands($vid,$did){
 	global $dbc;
@@ -136,7 +241,7 @@ function showCategoryItems($vid,$did,$brand){
 		ON v.upc=p.upc LEFT JOIN vendorDepartments AS d
 		ON d.deptID=v.vendorDept
 		WHERE v.vendorID=$vid AND brand=$brand
-		$clause ORDER BY v.upc";
+		$clause GROUP BY v.upc ORDER BY v.upc";
 	
 	$ret = "<table cellspacing=0 cellpadding=4 border=1>";
 	$ret .= "<tr><th>UPC</th><th>Brand</th><th>Description</th>";
@@ -151,17 +256,27 @@ function showCategoryItems($vid,$did,$brand){
 				$row['description'],$row['size'],$row['cost']);
 		}
 		else {
-			$srp = getSRP($row['cost'],$row['margin']);
-			$ret .= sprintf("<tr id=row%s><td>%s</td><td>%s</td><td>%s</td>
-				<td>%s</td><td>\$%.2f</td><td>
-				<input type=text size=5 value=%.2f id=price%s />
-				</td><td><select id=\"dept%s\">%s</select></td>
-				<td id=button%s>
-				<input type=submit value=\"Add to POS\"
-				onclick=\"addToPos('%s');\" /></td></tr>",$row['upc'],
-				$row['upc'],$row['brand'],$row['description'],
-				$row['size'],$row['cost'],$srp,$row['upc'],
-				$row['upc'],$depts,$row['upc'],$row['upc']);
+			$srp = number_format(getSRP($row['cost'],$row['margin']), 2);
+			$cost = number_format($row['cost'], 2);
+			$ret .= "<tr id=\"row{$row['upc']}\">
+						<td>{$row['upc']}</td>
+						<td>{$row['brand']}</td>
+						<td>{$row['description']}</td>
+						
+						<td>{$row['size']}</td>
+						<td>$$cost</td>
+						
+						<td>
+							<input type=\"text\" size=\"5\" value=\"$srp\" id=\"price{$row['upc']}\" />
+						</td>
+						<td>
+							<select id=\"dept{$row['upc']}\">$depts</select>
+						</td>
+						
+						<td id=\"button{$row['upc']}\">
+							<input type=submit value=\"Add to POS\"	onclick=\"addToPos('{$row['upc']}');\" />
+						</td>
+					</tr>";
 		}
 	}
 	$ret .= "</table>";
